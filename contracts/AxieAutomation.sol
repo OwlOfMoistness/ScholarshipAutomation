@@ -7,6 +7,16 @@ interface SLP {
 	function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
 }
 
+interface ClaimAddress {
+	function claim(address _owner, uint256 _tokenId, uint256 _checkpoint, uint256 _createdAt, bytes calldata _signature) external;
+}
+
+interface IERC20 {
+	function balanceOf(address user) external view returns(uint256);
+	function transfer(address recipient, uint256 amount) external returns (bool);
+	function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+}
+
 interface IERC721 {
     function balanceOf(address owner) external view returns (uint256 balance);
     function ownerOf(uint256 tokenId) external view returns (address owner);
@@ -23,6 +33,7 @@ contract AxieAutomation {
 
 	uint256 public constant TOTAL_SHARE = 10000;
 	SLP public constant SLP_CONTRACT = SLP(0xa8754b9Fa15fc18BB59458815510E40a12cD2014);
+	ClaimAddress public constant CLAIM_ADDRESS = ClaimAddress(0x1a35E7ED2A2476129A32612644C8426BF8e8730c);
 	IERC721 public constant AXIE = IERC721(0x32950db2a7164aE833121501C797D79E7B79d74C);
 
 	address public owner;
@@ -78,6 +89,33 @@ contract AxieAutomation {
 		}
 	}
 
+	function syncAndShareToken(
+		address[] memory _recipients,
+		uint256[] memory _values,
+		address _account,
+		uint256 _checkpoint,
+		uint256 _tokenId,
+		address _token,
+		uint256 _createdAt,
+		bytes memory _signature)
+		public onlyOwner {
+		require(_recipients.length == _values.length, "!len");
+		require(_sum(_values) == 10000, "!sum");
+		uint256 syncedAmount = IERC20(_token).balanceOf(_account);
+		CLAIM_ADDRESS.claim(_account, _tokenId, _checkpoint, _createdAt, _signature);
+		syncedAmount = IERC20(_token).balanceOf(_account) - syncedAmount;
+		uint256 sentAmount;
+		uint256 total = TOTAL_SHARE;
+		for (uint256 i = 0 ; i < _values.length; i++) {
+			uint256 sharedAmount = syncedAmount * _values[i] / total;
+			if (i != _values.length - 1)
+				IERC20(_token).transferFrom(_account, _recipients[i], sharedAmount);
+			else
+				IERC20(_token).transferFrom(_account, _recipients[i], syncedAmount - sentAmount);
+			sentAmount += sharedAmount;
+		}
+	}
+
 	function addAxies(address _account, uint256[] memory _axies) public onlyOwner {
 		for (uint256 i = 0; i < _axies.length; i++) {
 			AXIE.safeTransferFrom(axieDen, _account, _axies[i]);
@@ -102,7 +140,7 @@ contract AxieAutomation {
 		}
 	}
 
-	function updateCallers(address[] calldata _callers, bool[] calldata _values {
+	function updateCallers(address[] calldata _callers, bool[] calldata _values) external onlyOwner {
 		for (uint256 i = 0; i < _callers.length; i++) {
 			approvedCallers[_callers[i]] = _values[i];
 		}
